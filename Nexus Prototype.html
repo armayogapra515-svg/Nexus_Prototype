@@ -123,6 +123,12 @@ h1,h2,h3,h4,h5,h6, .font-display{ font-family:var(--font-display); letter-spacin
   box-shadow:0 0 0 .2rem rgba(0,229,255,.15); outline:none;
 }
 .form-control-nexus::placeholder{ color:var(--text-low); }
+.form-select-nexus option{
+  background:var(--bg-panel-2); color:var(--text-hi);
+}
+.form-select-nexus option:checked, .form-select-nexus option:hover{
+  background:var(--bg-panel-3); color:var(--cyan);
+}
 .btn-nexus{
   background:linear-gradient(90deg,var(--violet),var(--cyan)); border:none; color:#02121a; font-weight:700;
   font-family:var(--font-ui); letter-spacing:1.5px; border-radius:10px; padding:.65rem 1rem;
@@ -197,6 +203,14 @@ h1,h2,h3,h4,h5,h6, .font-display{ font-family:var(--font-display); letter-spacin
 .bg-maint{ background:rgba(255,184,0,.15); color:var(--warning); border:1px solid rgba(255,184,0,.3);}
 .bg-lunas{ background:rgba(0,255,163,.15); color:var(--success); border:1px solid rgba(0,255,163,.3);}
 .bg-berjalan{ background:rgba(0,229,255,.15); color:var(--cyan); border:1px solid rgba(0,229,255,.3);}
+
+.countdown-badge{ font-family:var(--font-ui); font-weight:700; letter-spacing:.5px; padding:.35em .7em; border-radius:8px; font-size:.78rem; display:inline-flex; align-items:center; gap:6px; white-space:nowrap;}
+.countdown-normal{ background:rgba(0,229,255,.12); color:var(--cyan); border:1px solid rgba(0,229,255,.28); }
+.countdown-warning{ background:rgba(255,184,0,.15); color:var(--warning); border:1px solid rgba(255,184,0,.35); animation:pulseWarn 1.2s ease-in-out infinite; }
+.countdown-overdue{ background:rgba(255,56,96,.18); color:var(--danger); border:1px solid rgba(255,56,96,.4); animation:pulseOver 1s ease-in-out infinite; }
+@keyframes pulseWarn{ 0%,100%{opacity:1;} 50%{opacity:.55;} }
+@keyframes pulseOver{ 0%,100%{ box-shadow:0 0 0 0 rgba(255,56,96,.5);} 50%{ box-shadow:0 0 0 6px rgba(255,56,96,0);} }
+.unit-tile .countdown-mini{ font-family:var(--font-ui); font-size:.72rem; font-weight:700; letter-spacing:.5px; margin-top:4px; }
 
 .btn-icon{ width:32px; height:32px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--border-soft); background:transparent; color:var(--text-mid); transition:.2s;}
 .btn-icon:hover{ color:#fff; }
@@ -578,7 +592,7 @@ h1,h2,h3,h4,h5,h6, .font-display{ font-family:var(--font-display); letter-spacin
         <div class="nexus-card mt-3">
           <div class="font-ui fw-bold mb-2" style="letter-spacing:1px;">SESI RENTAL BERJALAN</div>
           <div class="table-responsive-nexus"><table class="table-nexus">
-            <thead><tr><th>Kode</th><th>Pelanggan</th><th>Unit</th><th>Mulai</th><th>Durasi</th><th>Total</th><th class="text-end">Aksi</th></tr></thead>
+            <thead><tr><th>Kode</th><th>Pelanggan</th><th>Unit</th><th>Mulai</th><th>Durasi</th><th>Sisa Waktu</th><th>Total</th><th class="text-end">Aksi</th></tr></thead>
             <tbody id="tblSesiAktif"></tbody>
           </table></div>
         </div>
@@ -1109,7 +1123,9 @@ function renderDashboard(){
 /* ================= UNIT PS ================= */
 function renderUnitGrid(){
   const icon = t => t==='PS5' ? 'bi-controller' : 'bi-joystick';
-  document.getElementById('unitGrid').innerHTML = DB.units.map(u=>`
+  document.getElementById('unitGrid').innerHTML = DB.units.map(u=>{
+    const runningTrx = u.status==='disewa' ? DB.transactions.find(t=>t.unitId===u.id && t.status==='berjalan') : null;
+    return `
     <div class="col-sm-6 col-lg-4">
       <div class="unit-tile">
         <div class="d-flex justify-content-between align-items-start">
@@ -1119,12 +1135,15 @@ function renderUnitGrid(){
         <div class="fw-bold mt-2" style="font-family:var(--font-ui); font-size:1.05rem;">${u.name}</div>
         <div class="text-mid small">${u.type} &middot; ${u.location}</div>
         <div class="text-cyan fw-bold mt-1">${rupiah(u.priceHour)}/jam</div>
+        ${runningTrx ? `<div class="countdown-mini" id="cdmini-${u.id}">--:--:--</div>` : ''}
         <div class="d-flex gap-2 mt-3">
           <button class="btn-icon edit" onclick="openUnitModal('${u.id}')" data-bs-toggle="modal" data-bs-target="#modalUnit"><i class="bi bi-pencil-fill"></i></button>
           <button class="btn-icon del" onclick="deleteUnit('${u.id}')"><i class="bi bi-trash-fill"></i></button>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+  tickCountdowns();
 }
 function openUnitModal(id){
   document.getElementById('unitId').value = id||'';
@@ -1369,11 +1388,69 @@ function prosesTransaksi(){
 function renderSesiAktif(){
   const list = DB.transactions.filter(t=>t.status==='berjalan');
   document.getElementById('tblSesiAktif').innerHTML = list.map(t=>`
-    <tr><td>${t.code}</td><td>${t.customerName}</td><td>${t.unitName}</td><td>${fmtDateTime(t.date)}</td><td>${t.durasi} Jam</td><td>${rupiah(t.total)}</td>
+    <tr><td>${t.code}</td><td>${t.customerName}</td><td>${t.unitName}</td><td>${fmtDateTime(t.date)}</td><td>${t.durasi} Jam</td>
+    <td><span class="countdown-badge countdown-normal" id="cd-${t.id}">--:--:--</span></td>
+    <td>${rupiah(t.total)}</td>
     <td class="text-end">
       <button class="btn btn-outline-nexus btn-sm" onclick="selesaikanSewa('${t.id}')"><i class="bi bi-check2-circle me-1"></i>Selesai</button>
       <button class="btn-icon view" onclick="showDetailTransaksi('${t.id}')"><i class="bi bi-eye-fill"></i></button>
-    </td></tr>`).join('') || '<tr><td colspan="7" class="text-center text-mid">Tidak ada sesi berjalan</td></tr>';
+    </td></tr>`).join('') || '<tr><td colspan="8" class="text-center text-mid">Tidak ada sesi berjalan</td></tr>';
+  tickCountdowns();
+}
+
+/* ================= COUNTDOWN RENTAL ================= */
+function endTimeOf(t){ return new Date(t.date).getTime() + t.durasi*3600*1000; }
+function fmtSisa(ms){
+  const over = ms < 0;
+  const abs = Math.abs(ms);
+  const h = Math.floor(abs/3600000);
+  const m = Math.floor((abs%3600000)/60000);
+  const s = Math.floor((abs%60000)/1000);
+  const pad = n => String(n).padStart(2,'0');
+  return (over?'-':'') + pad(h)+':'+pad(m)+':'+pad(s);
+}
+function beepAlert(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type='sine'; o.frequency.value=880; o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(.001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.15, ctx.currentTime+.02);
+    g.gain.exponentialRampToValueAtTime(.001, ctx.currentTime+.35);
+    o.start(); o.stop(ctx.currentTime+.4);
+  }catch(e){}
+}
+function tickCountdowns(){
+  const running = DB.transactions.filter(t=>t.status==='berjalan');
+  let changed = false;
+  running.forEach(t=>{
+    const remaining = endTimeOf(t) - Date.now();
+    const badge = document.getElementById('cd-'+t.id);
+    if(badge){
+      badge.textContent = (remaining<0?'LEWAT ':'') + fmtSisa(remaining);
+      badge.className = 'countdown-badge ' + (remaining<0 ? 'countdown-overdue' : remaining<=10*60000 ? 'countdown-warning' : 'countdown-normal');
+    }
+    const mini = document.getElementById('cdmini-'+t.unitId);
+    if(mini){
+      mini.textContent = (remaining<0?'Waktu habis: ':'Sisa: ') + fmtSisa(remaining);
+      mini.style.color = remaining<0 ? 'var(--danger)' : remaining<=10*60000 ? 'var(--warning)' : 'var(--cyan)';
+    }
+    if(remaining < 0 && !t.notified){
+      t.notified = true; changed = true;
+      toast('Waktu sewa '+t.code+' ('+t.customerName+' - '+t.unitName+') sudah berakhir!','danger');
+      beepAlert();
+      if(window.Notification && Notification.permission==='granted'){
+        new Notification('Waktu Rental Berakhir', {body: t.unitName+' - '+t.customerName+' ('+t.code+')'});
+      }
+    }
+  });
+  if(changed) saveDB();
+}
+if(!window.__countdownInterval){
+  window.__countdownInterval = setInterval(tickCountdowns, 1000);
+}
+if(window.Notification && Notification.permission==='default'){
+  document.addEventListener('click', function reqPerm(){ Notification.requestPermission(); document.removeEventListener('click', reqPerm); }, {once:true});
 }
 function selesaikanSewa(id){
   const t = DB.transactions.find(x=>x.id===id);
